@@ -1,16 +1,16 @@
 //
-// Sublevel Persistence of a finite time series that includes arbitrary flats
+// (Sub/Super)level Persistence of a finite time series that includes arbitrary flats
 //
 // Georg Essl & Robin Belton(February 2024-January 2025)
 //
 // Thanks to Nicole Sanderson for seeding the idea and early discussions.
-//
 
 // Known issues:
-// computeBoxSnakes does not respect superlevelset direction in its embedded barcode computation
+// computeBoxSnakes does not respect superlevelset direction in its embedded barcode computation, however it can still compute superlevelset persistence via Theorem 6.3 of Belton & Essl (2025).
+//
 // Incomplete implementations/fragments:
-// Barcode from Merge Tree via local rule is a fragment
-// computePH_n() not working correctly for total (elder) bar.
+// Barcode from Merge Tree via local rule is a fragment. Correct local bars can be computed via the barcodefromrectangle algorithm.
+// computePH_n() not working correctly for total (elder) bar. Correct elder bars can be computed via the MergeTree algorithm if needed.
 
 //
 // Import stuff from ringedbufferwebaudio.js
