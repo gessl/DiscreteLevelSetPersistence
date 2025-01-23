@@ -16,8 +16,8 @@
 // Import stuff from ringedbufferwebaudio.js
 //
 import { createAudioContext, realdataQueue } from "../ringbufferwebaudio/ringedbufferwebaudio.js"
-import { RENDER_QUANTUM } from './constants.js';
-import FFT from "./fft.js";
+import { RENDER_QUANTUM } from '../constants.js';
+import FFT from "../fft.js";
 import LSP from "./LevelSetPersistence.js";
 
 // Instance of LevelSetPersistence (LSP) we are using.
