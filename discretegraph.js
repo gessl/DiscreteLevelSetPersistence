@@ -41,23 +41,27 @@ class disGraph {
     // Visibility states
     this.paramstates =
     {
-      drawlinegraph: true,
-      drawalllines: true,
+      drawlinegraph: false,
+      drawalllines: false,
+//      linecolor: [0,255,0],
       drawrect: true,
       drawmonotoneonly: false,
       showhighlight: false,
-      drawsublevelgraph: false,
-      showtriset: false,
-      drawlinelevel: false,
+      drawsublevelgraph: true,
+      showtriset: true,
+      drawlinelevel: true,
       drawsetoflevels: false,
       drawbarcode: true,
       drawbarcodecount: false,
       showsplitpoint: false,
       showleveldots: false,
-      drawdots: false,
-      drawdotlines: false,
-      drawmergetree: true,
-      drawimpulses: false
+      drawdots: true,
+      drawimpulses: true,
+      dotsubsample: 1,
+      dotsubsampleMin: 1,
+      dotsubsampleMax: 64,
+      dotsubsampleStep: 1,
+      drawmergetree: true
     };
     this.computesuperlevelset=false;
     this.showcursor = false;
@@ -66,7 +70,7 @@ class disGraph {
 
     this.drawextremaarrow = false;
     this.drawaxis=true;
-    this.dotsubsample = 2;
+    this.drawdotlines=false;
 
     this.debugrectnumbers = false;
     this.showhelp = false;
@@ -93,7 +97,7 @@ class disGraph {
   setMinDirOrder(dir)
   {
     this.mindirorder = dir;
-  //  console.log("mdo: "+this.mindirorder);
+  //  print("mdo: "+this.mindirorder);
   }
   setDrawLineLevel(drawlinelevel)
   {
@@ -123,14 +127,15 @@ class disGraph {
     this.leftroot = leftroot;
     this.toproot = toproot;
   }
-  setAllData(dataY,rect,barcode,setoflevels,xpert,usecircular,basepoint)
+  setAllData(dataY,rect,mtree,barcode,setoflevels,xpert,usecircular,basepoint)
   {
-    this.dataY=dataY;
-    this.rectangles=rect;
-    this.barcode=barcode;
-    this.setoflevels=setoflevels;
-    this.xPert=xpert;
-    this.usecircular=usecircular;
+    this.dataY = dataY;
+    this.rectangles = rect;
+    this.mergetree = mtree;
+    this.barcode = barcode;
+    this.setoflevels = setoflevels;
+    this.xPert = xpert;
+    this.usecircular = usecircular;
     this.numPts = this.dataY.length;
     this.bp = basepoint;
   //  print("BP "+this.bp);
@@ -278,12 +283,12 @@ class disGraph {
     if(!this.paramstates.drawdots)
       return;
     this.p5.push();
-    this.p5.translate(this.leftroot+this.leftmargin,this.toproot+this.innerh/2);
+    this.p5.translate(this.leftroot+this.leftmargin+this.innerw/(this.numPts+1),this.toproot+this.innerh/2);
     this.p5.noStroke();
     // draw ellipses
     this.p5.fill(0);
-    for (let i = 0; i < this.dataY.length; i=i+this.dotsubsample) {
-      let x = i * (this.innerw / (this.numPts))+ 0.5*this.innerw/(this.numPts)*this.xPert[i];
+    for (let i = 0; i < this.dataY.length; i=i+this.paramstates.dotsubsample) {
+      let x = i * (this.innerw / (this.numPts+1))+ 0.5*this.innerw/(this.numPts+1)*this.xPert[i];
       let y = this.dataY[i];
       if(this.paramstates.showsplitpoint && (i==this.splitpoint%this.dataY.length || i==(this.splitpoint+1)%this.dataY.length))
         this.p5.fill(255,0,0);
@@ -293,12 +298,12 @@ class disGraph {
       {
         this.setLineDash([10, 10]);
         this.p5.stroke(0,0,0,128);
-        let xmid = (x+((i+1) * (this.innerw / (this.numPts))+ 0.5*this.innerw/(this.numPts)*this.xPert[i+1]))/2;
+        let xmid = (x+((i+1) * (this.innerw / (this.numPts+1))+ 0.5*this.innerw/(this.numPts+1)*this.xPert[i+1]))/2;
         this.p5.line(xmid,20,xmid,-200);
         this.setLineDash([]);
       }
       this.p5.ellipse(x, -y*180/this.normalizer, this.bubblesize);
-      if(this.paramstates.drawdotlines==true)
+      if(this.drawdotlines==true)
       {
         this.p5.stroke(0,0,0,128);
         this.p5.line(x,-y, this.leftmargin+this.innerw,-y);
@@ -312,19 +317,19 @@ class disGraph {
   drawimpulsgraph()
   {
     this.p5.push();
-    this.p5.translate(this.leftroot+this.leftmargin,this.toproot+this.innerh/2);
+    this.p5.translate(this.leftroot+this.leftmargin+this.innerw/(this.numPts+1),this.toproot+this.innerh/2);
     this.p5.strokeWeight(this.impulsestroke);
     this.p5.stroke(64,64,64,128);
 //    this.p5.stroke(128,128,128,64);
     // draw lines
-//    console.log("iw "+this.innerw+" "+this.numPts+" "+this.xPert[0]);
-    for (let i = 0; i < this.dataY.length; i++) {
-      let x = i * (this.innerw / (this.numPts)) + 0.5*this.innerw/(this.numPts)*this.xPert[i];
+//    print("iw "+this.innerw+" "+this.numPts+" "+this.xPert[0]);
+//    for (let i = 0; i < this.dataY.length; i++) {
+    for (let i = 0; i < this.dataY.length; i=i+this.paramstates.dotsubsample) {
+        let x = i * (this.innerw/(this.numPts+1)) + 0.5*this.innerw/(this.numPts+1)*this.xPert[i];
       let y = this.dataY[i];
       this.p5.line(x,0, x, -y*180/this.normalizer);
     }
     this.p5.pop();
-    
   }
 
   // Draw current sublevel set at a given level. 
@@ -332,26 +337,26 @@ class disGraph {
   {
     if(this.paramstates.drawsublevelgraph == false) return;
     this.p5.push();
-    this.p5.translate(this.leftroot,this.toproot);
-    let lasti = -2; // Invalid number to make sure connectivity check fails until initialized.
+//    this.p5.translate(this.leftroot+this.innerw/(this.numPts+1),this.toproot);
     let offy = this.bottomconnect/2;
     if(this.paramstates.showtriset==true)
       offy = this.bottomconnect+this.bottomconnect/2;
+    this.p5.translate(this.leftroot+this.leftmargin+this.innerw/(this.numPts+1),this.toproot+this.innerh+this.bottommargin+offy);
+    let lasti = -2; // Invalid number to make sure connectivity check fails until initialized.
     
-    console.log(this.bottomconnect+" "+offy);
     for (let i = 0; i < this.dataY.length; i++) {
         if(this.dataY[i] < ylevel || (this.paramstates.showtriset==false && this.dataY[i] == ylevel))
         {
-          let x = i * (this.innerw / (this.numPts))+ 0.5*this.innerw/(this.numPts)*this.xPert[i];
+          let x = i * (this.innerw / (this.numPts+1))+ 0.5*this.innerw/(this.numPts+1)*this.xPert[i];
           let y = this.dataY[i];
           this.p5.fill(0);
           this.p5.noStroke();
-          this.p5.ellipse(this.leftmargin+x, this.innerh+this.bottommargin+offy, this.bubblesize);
+          this.p5.ellipse(x, 0, this.bubblesize);
           if(lasti == i-1)
             {
               this.p5.stroke(0);
               this.p5.strokeWeight(this.levelsetstroke);
-              this.p5.line(this.leftmargin+x, this.innerh+this.bottommargin+offy,this.leftmargin+(i-1) * (this.innerw / (this.numPts))+ 0.5*this.innerw/(this.numPts)*this.xPert[i-1],this.innerh+this.bottommargin+offy)
+              this.p5.line( x, 0, (i-1) * (this.innerw / (this.numPts+1))+ 0.5*this.innerw/(this.numPts+1)*this.xPert[i-1],0);
             }
           lasti = i;
         }
@@ -359,18 +364,17 @@ class disGraph {
         {
           this.p5.fill(0);
           this.p5.noStroke();
-          let x = i * (this.innerw / (this.numPts))+ 0.5*this.innerw/(this.numPts)*this.xPert[i];
-          let y = this.dataY[i];
-          this.p5.ellipse(this.leftmargin+x, this.innerh+this.bottommargin+offy, this.bubblesize/4);
+          let x = i * (this.innerw / (this.numPts+1))+ 0.5*this.innerw/(this.numPts+1)*this.xPert[i];
+          this.p5.ellipse(x, 0, this.bubblesize/4);
         }
       }
     if(this.usecircular == true && lasti == this.dataY.length-1)
       {
         if(this.dataY[0]< ylevel)
           {
-            let x = lasti * (this.innerw / (this.numPts))+ 0.5*this.innerw/(this.numPts)*this.xPert[lasti];
-            this.p5.line(this.leftmargin+x, this.innerh+this.bottommargin+offy,this.leftmargin+x+(this.innerw / (this.numPts))/2,this.innerh+this.bottommargin+offy);
-            this.p5.line(this.leftmargin, this.innerh+this.bottommargin+offy,this.leftmargin-(this.innerw / (this.numPts))/2,this.innerh+this.bottommargin+offy);
+            let x = lasti * (this.innerw / (this.numPts+1))+ 0.5*this.innerw/(this.numPts+1)*this.xPert[lasti];
+            this.p5.line(x, 0, x+(this.innerw / (this.numPts+1))/2, 0);
+            this.p5.line(0, 0, 0-(this.innerw / (this.numPts+1))/2, 0);
           }
       }
       this.p5.pop();
@@ -381,22 +385,22 @@ class disGraph {
   {
     if(this.drawsublevelgraph == false) return;
     this.p5.push();
-    this.p5.translate(this.leftroot,this.toproot);
+//    this.p5.translate(this.leftroot,this.toproot);
+    this.p5.translate(this.leftroot+this.leftmargin+this.innerw/(this.numPts+1),this.toproot+this.innerh+this.bottommargin+(this.bottomconnect/2));
     let lasti = -2; // Invalid number to make sure connectivity check fails until initialized.
     
     for (let i = 0; i < this.dataY.length; i++) {
         if(this.dataY[i] > ylevel)
         {
-          let x = i * (this.innerw / (this.numPts))+ 0.5*this.innerw/(this.numPts)*this.xPert[i];
-          let y = this.dataY[i];
+          let x = i * (this.innerw / (this.numPts+1))+ 0.5*this.innerw/(this.numPts+1)*this.xPert[i];
           this.p5.fill(0);
           this.p5.noStroke();
-          this.p5.ellipse(this.leftmargin+x, this.innerh+this.bottommargin+(this.bottomconnect/2), this.bubblesize);
+          this.p5.ellipse(x, 0, this.bubblesize);
           if(lasti == i-1)
             {
               this.p5.stroke(0);
               this.p5.strokeWeight(this.levelsetstroke);
-              this.p5.line(this.leftmargin+x, this.innerh+this.bottommargin+this.bottomconnect/2,this.leftmargin+(i-1) * (this.innerw / (this.numPts))+ 0.5*this.innerw/(this.numPts)*this.xPert[i-1],this.innerh+this.bottommargin+this.bottomconnect/2);
+              this.p5.line(x, 0,  (i-1) * (this.innerw / (this.numPts+1))+ 0.5*this.innerw/(this.numPts+1)*this.xPert[i-1],0);
             }
           lasti = i;
         }
@@ -404,9 +408,8 @@ class disGraph {
         {
           this.p5.fill(0);
           this.p5.noStroke();
-          let x = i * (this.innerw / (this.numPts))+ 0.5*this.innerw/(this.numPts)*this.xPert[i];
-          let y = this.dataY[i];
-          this.p5.ellipse(this.leftmargin+x, this.innerh+this.bottommargin+(this.bottomconnect/2), this.bubblesize/4);
+          let x = i * (this.innerw / (this.numPts+1))+ 0.5*this.innerw/(this.numPts+1)*this.xPert[i];
+          this.p5.ellipse(x, this.innerh+this.bottommargin+(this.bottomconnect/2), this.bubblesize/4);
         }
       }
 
@@ -415,9 +418,9 @@ class disGraph {
       {
         if(this.dataY[0]> ylevel)
           {
-            let x = lasti * (this.innerw / (this.numPts))+ 0.5*this.innerw/(this.numPts)*this.xPert[lasti];
-            this.p5.line(this.leftmargin+x, this.innerh+this.bottommargin+this.bottomconnect/2,this.leftmargin+x+(this.innerw / (this.numPts))/2,this.innerh+this.bottommargin+this.bottomconnect/2);
-            this.p5.line(this.leftmargin, this.innerh+this.bottommargin+this.bottomconnect/2,this.leftmargin-(this.innerw / (this.numPts))/2,this.innerh+this.bottommargin+this.bottomconnect/2);
+            let x = lasti * (this.innerw / (this.numPts+1))+ 0.5*this.innerw/(this.numPts+1)*this.xPert[lasti];
+            this.p5.line(x, 0, x+(this.innerw / (this.numPts+1))/2,0);
+            this.p5.line(0, 0, 0-(this.innerw / (this.numPts+1))/2,0);
           }
       }
       this.p5.pop();
@@ -429,21 +432,20 @@ class disGraph {
     if(this.paramstates.drawsublevelgraph == false) return;
     let lasti = -2; // Invalid number to make sure connectivity check fails until initialized.
     this.p5.push();
-    this.p5.translate(this.leftroot,this.toproot);
+    this.p5.translate(this.leftroot+this.leftmargin+this.innerw/(this.numPts+1),this.toproot+this.innerh+this.bottommargin+this.bottomconnect);
     
     for (let i = 0; i < this.dataY.length; i++) {
         if(this.dataY[i] == ylevel)
         {
-          let x = i * (this.innerw / (this.numPts))+ 0.5*this.innerw/(this.numPts)*this.xPert[i];
-          let y = this.dataY[i];
+          let x = i * (this.innerw / (this.numPts+1))+ 0.5*this.innerw/(this.numPts+1)*this.xPert[i];
           this.p5.fill(0);
           this.p5.noStroke();
-          this.p5.ellipse(this.leftmargin+x, this.innerh+this.bottommargin+this.bottomconnect, this.bubblesize);
+          this.p5.ellipse(x, 0, this.bubblesize);
           if(lasti == i-1)
             {
               this.p5.stroke(0);
               this.p5.strokeWeight(this.levelsetstroke);
-              this.p5.line(this.leftmargin+x, this.innerh+this.bottommargin+this.bottomconnect,this.leftmargin+(i-1) * (this.innerw / (this.numPts))+ 0.5*this.innerw/(this.numPts)*this.xPert[i-1],this.innerh+this.bottommargin+this.bottomconnect);
+              this.p5.line(x, 0, (i-1) * (this.innerw / (this.numPts+1))+ 0.5*this.innerw/(this.numPts+1)*this.xPert[i-1],0);
             }
           lasti = i;
         }
@@ -451,9 +453,9 @@ class disGraph {
         {
           this.p5.fill(0);
           this.p5.noStroke();
-          let x = i * (this.innerw / (this.numPts))+ 0.5*this.innerw/(this.numPts)*this.xPert[i];
+          let x = i * (this.innerw / (this.numPts+1))+ 0.5*this.innerw/(this.numPts+1)*this.xPert[i];
           let y = this.dataY[i];
-          this.p5.ellipse(this.leftmargin+x, this.innerh+this.bottommargin+this.bottomconnect, this.bubblesize/4);
+          this.p5.ellipse(x, 0, this.bubblesize/4);
         }
       }
 
@@ -461,11 +463,11 @@ class disGraph {
       {
         if(this.dataY[0] == ylevel)
           {
-            let x = lasti * (this.innerw / (this.numPts))+ 0.5*this.innerw/(this.numPts)*this.xPert[lasti];
+            let x = lasti * (this.innerw / (this.numPts+1))+ 0.5*this.innerw/(this.numPts+1)*this.xPert[lasti];
             this.p5.stroke(0);
             this.p5.strokeWeight(this.levelsetstroke);
-            this.p5.line(this.leftmargin+x, this.innerh+this.bottommargin+this.bottomconnect,this.leftmargin+x+(this.innerw / (this.numPts))/2,this.innerh+this.bottommargin+this.bottomconnect);
-            this.p5.line(this.leftmargin, this.innerh+this.bottommargin+this.bottomconnect,this.leftmargin-(this.innerw / (this.numPts))/2,this.innerh+this.bottommargin+this.bottomconnect);
+            this.p5.line(x, 0, x+(this.innerw / (this.numPts+1))/2,0);
+            this.p5.line(0, 0, 0-(this.innerw / (this.numPts+1))/2,0);
           }
       }
 
@@ -478,7 +480,7 @@ class disGraph {
   drawLines() {
     if(this.paramstates.drawlinegraph == false) return;
     this.p5.push();
-    this.p5.translate(this.leftroot+this.leftmargin,this.toproot+this.innerh/2);
+    this.p5.translate(this.leftroot+this.leftmargin+this.innerw/(this.numPts+1),this.toproot+this.innerh/2);
     this.p5.strokeWeight(this.linestroke);
     this.p5.stroke(0,192,0,128);
 //    this.p5.stroke(32,32,32,255);
@@ -486,7 +488,7 @@ class disGraph {
     let px = 0;
     let py = this.dataY[0];
     for (let i = 0; i < this.dataY.length; i++) {
-      let x = i * (this.innerw / (this.numPts))+ 0.5*this.innerw/(this.numPts)*this.xPert[i];
+      let x = i * (this.innerw / (this.numPts+1))+ 0.5*this.innerw/(this.numPts+1)*this.xPert[i];
       let y = this.dataY[i];
       if(this.paramstates.drawalllines == true || (py<=-this.levelset && y<=-this.levelset))
         this.p5.line(px, -py*180/this.normalizer, x, -y*180/this.normalizer);
@@ -498,29 +500,24 @@ class disGraph {
     this.p5.pop();
   }
 
+  // Draw a rectanglular box even if it "wraps around" due to being data on a circular domain
+  // Notice the current implementation disregards embedding perturbations via xpert. If you really need this just add the offets.
   rectMod(sx,sy,ex,ey,p)
   {
     ex = ex.mod(p);
     sx = sx.mod(p);
     if(ex<sx)
       {
-  //      print("YART "+sx+" "+ex+" "+p);
-        this.p5.line(sx*(this.innerw / (this.numPts))/*-this.innerw / (this.numPts)/2*/,-sy*180/this.normalizer,p*(this.innerw / (this.numPts))+this.innerw / (this.numPts)/*/2*/,-sy*180/this.normalizer);
-        this.p5.line(sx*(this.innerw / (this.numPts))/*-this.innerw / (this.numPts)/2*/,-ey*180/this.normalizer,p*(this.innerw / (this.numPts))+this.innerw / (this.numPts)/*/2*/,-ey*180/this.normalizer);
-        this.p5.line(sx*(this.innerw / (this.numPts))/*-this.innerw / (this.numPts)/2*/,-sy,sx*(this.innerw / (this.numPts))/*-this.innerw / (this.numPts)/2*/,-ey*180/this.normalizer);
-        this.p5.line(0*(this.innerw / (this.numPts))/*-this.innerw / (this.numPts)/2*/,-sy*180/this.normalizer,ex*(this.innerw / (this.numPts))+this.innerw / (this.numPts)/*/2*/,-sy*180/this.normalizer);
-        this.p5.line(0*(this.innerw / (this.numPts))/*-this.innerw / (this.numPts)/2*/,-ey*180/this.normalizer,ex*(this.innerw / (this.numPts))+this.innerw / (this.numPts)/*/2*/,-ey*180/this.normalizer);
-        this.p5.line(ex*(this.innerw / (this.numPts))+this.innerw / (this.numPts)/*/2*/,-sy*180/this.normalizer,ex*(this.innerw / (this.numPts))+this.innerw / (this.numPts)/*/2*/,-ey*180/this.normalizer);
+        this.p5.line(sx*(this.innerw / (this.numPts+1)), -sy*180/this.normalizer, (p)*(this.innerw / (this.numPts+1)), -sy*180/this.normalizer);
+        this.p5.line(sx*(this.innerw / (this.numPts+1)), -ey*180/this.normalizer, (p)*(this.innerw / (this.numPts+1)), -ey*180/this.normalizer);
+        this.p5.line(sx*(this.innerw / (this.numPts+1)), -sy*180/this.normalizer, sx*(this.innerw / (this.numPts+1)),    -ey*180/this.normalizer);
+        this.p5.line(0*(this.innerw / (this.numPts+1)),  -sy*180/this.normalizer, (ex+1)*(this.innerw / (this.numPts+1)),-sy*180/this.normalizer);
+        this.p5.line(0*(this.innerw / (this.numPts+1)),  -ey*180/this.normalizer, (ex+1)*(this.innerw / (this.numPts+1)),-ey*180/this.normalizer);
+        this.p5.line((ex+1)*(this.innerw / (this.numPts+1)),-sy*180/this.normalizer,(ex+1)*(this.innerw / (this.numPts+1)),-ey*180/this.normalizer);
       }
     else
-      {/*
-        line(sx*(innerw / (numPts))-innerw / (numPts)/2,-sy,ex*(innerw / (numPts))+innerw / (numPts)/2,-sy);
-        line(sx*(innerw / (numPts))-innerw / (numPts)/2,-sy,sx*(innerw / (numPts))-innerw / (numPts)/2,-ey);
-        line(sx*(innerw / (numPts))-innerw / (numPts)/2,-ey,ex*(innerw / (numPts))+innerw / (numPts)/2,-ey);
-        line(ex*(innerw / (numPts))+innerw / (numPts)/2,-sy,ex*(innerw / (numPts))+innerw / (numPts)/2,-ey);
-  */
-        this.p5.rect(sx*(this.innerw / (this.numPts))/*-this.innerw / (this.numPts)/2*/,-sy*180/this.normalizer,ex*(this.innerw / (this.numPts))+this.innerw / (this.numPts)/*/2*/,-ey*180/this.normalizer);
-  //      print("YARE "+sx+" "+ex+" "+sy+" "+ey);
+      {
+        this.p5.rect(sx*(this.innerw / (this.numPts+1)),-sy*180/this.normalizer,(ex+1)*(this.innerw/(this.numPts+1)),-ey*180/this.normalizer);
       }
   }
 
@@ -531,7 +528,7 @@ class disGraph {
     if(this.computesuperlevelset==true)
       fliprect = -1;
     this.p5.push();
-    this.p5.translate(this.leftroot+this.leftmargin,this.toproot+this.innerh/2);
+    this.p5.translate(this.leftroot+this.leftmargin+this.innerw/(this.numPts+1)/2,this.toproot+this.innerh/2);
     this.p5.rectMode(this.p5.CORNERS);
     this.p5.noFill();
     this.p5.strokeWeight(this.rectstroke);
@@ -570,7 +567,7 @@ class disGraph {
           {
 //            print("AH "+this.rectangles[i].sx);
             let sx = this.rectangles[i].sx%this.dataY.length;
-            this.arrowhead((this.rectangles[i].sx-this.bp+(this.rectangles[i].dx-1)/2)%this.dataY.length*(this.innerw / (this.numPts)),-this.rectangles[i].sy*180/this.normalizer-this.rectangles[i].dir*this.bubblesize*1.5,-this.rectangles[i].dir*this.p5.PI/2);
+            this.arrowhead((this.rectangles[i].sx-this.bp+(this.rectangles[i].dx-1)/2)%this.dataY.length*(this.innerw / (this.numPts+1)),-this.rectangles[i].sy*180/this.normalizer-this.rectangles[i].dir*this.bubblesize*1.5,-this.rectangles[i].dir*this.p5.PI/2);
           }
         //      rect(rectangles[i].sx*(innerw / (numPts))-innerw / (numPts)/2,-rectangles[i].sy,rectangles[i].ex*(innerw / (numPts))+innerw / (numPts)/2,-rectangles[i].ey);
         if(this.debugrectnumbers==true)
@@ -580,7 +577,7 @@ class disGraph {
         let tstr='';
         let p=this.dataY.length;
         if(this.rectangles[i].ext==true) tstr = 'X';
-        this.p5.text(i+tstr,((this.rectangles[i].sx)%p)*(this.innerw / (this.numPts))+(this.rectangles[i].dx-1)*0.5*(this.innerw / (this.numPts))-8,-32);
+        this.p5.text(i+tstr,((this.rectangles[i].sx)%p)*(this.innerw / (this.numPts+1))+(this.rectangles[i].dx-1)*0.5*(this.innerw / (this.numPts+1))-8,-32);
         this.p5.strokeWeight(this.rectstroke);
         }
       }
@@ -593,7 +590,8 @@ plotfullMergeTree(tree)
 {
   if(tree==null || this.paramstates.drawmergetree==false) return;
   this.p5.push();
-  this.p5.translate(/*leftroot+*/this.leftmargin/*+innerw*/,/*toproot+*/this.innerh/2);
+//  this.p5.translate(/*leftroot+*/this.leftmargin/*+innerw*/,/*toproot+*/this.innerh/2);
+  this.p5.translate(this.leftroot+this.leftmargin+this.innerw/(this.numPts+1),this.toproot+this.innerh/2);
   this.p5.strokeWeight(this.linestroke);
   this.p5.stroke(0,192,0,128);
   this.plotMergeTree(tree);
@@ -611,20 +609,24 @@ plotMergeTree(tree)
       [x,y] = this.plotMergeTree(tree.descendants[i]);
       if(x!=undefined)
         {
-          let x2 = x * (this.innerw / (this.numPts))+ 
-0.5*this.innerw/(this.numPts)*this.xPert[i];
-          let xt = tree.x * (this.innerw / (this.numPts))+ 
-0.5*this.innerw/(this.numPts)*this.xPert[i];
+          let x2 = x * (this.innerw / (this.numPts+1))+ 
+0.5*this.innerw/(this.numPts+1)*this.xPert[i];
+          let xt = tree.x * (this.innerw / (this.numPts+1))+ 
+0.5*this.innerw/(this.numPts+1)*this.xPert[i];
           this.p5.line(xt,-tree.y*fliptree,x2,-y*fliptree);
         }
     }
   return [tree.x,tree.y];
 }
+  color(c)
+  {
+    this.p5.color(c);
+  }
 
   // Main graph drawing
   drawGraph(levelset,splitpoint)
   {
-//    console.log("DRAWGRAPH");
+//    print("DRAWGRAPH");
 //    console.trace();
     this.levelset = levelset;
     this.splitpoint = splitpoint;
@@ -633,7 +635,7 @@ plotMergeTree(tree)
       this.normalizer = 180;
     else
     this.normalizer = Math.max.apply(null, this.dataY.map(Math.abs));
-//    console.log("Norm: "+this.normalizer);
+//    print("Norm: "+this.normalizer);
     if(this.drawaxis==true)
     {
       this.drawyaxis();
@@ -654,13 +656,14 @@ plotMergeTree(tree)
       this.drawatlevelset(-levelset);
     }
     this.drawRectangles();
-  
+    this.plotfullMergeTree(this.mergetree);
+
     this.p5.stroke(255,0,0,255);
     if(this.showcursor)
     {
       this.p5.fill(255,0,0,255);
       this.p5.ellipseMode(CENTER);
-      this.p5.ellipse(this.leftmargin+this.lastxpos*(this.innerw/(this.numPts)),this.lastypos,this.cursorsize,this.cursorsize);
+      this.p5.ellipse(this.leftmargin+this.lastxpos*(this.innerw/(this.numPts+1)),this.lastypos,this.cursorsize,this.cursorsize);
     }
     if(this.showhelp)
     {
@@ -671,15 +674,17 @@ plotMergeTree(tree)
       let str=""+
               "A - Auto-scroll   "+
               "D - Direction   "+
-              "M - Sub/Super   "+
+//              "M - Sub/Super   "+
+              "N - Negate Function"+
               "C - Circular/Linear   "+
-              "S - Split  "+
+              "S - Split/Merge  "+
               "P - Audio  "+
               "T/F - Time/Frequency  "+
-//              "E - Elder  "+
-//              "Space - Step  "+
+              "E - Elder/Bary/Local  "+
+              "Space - Step  "+
               "[/] (shift) = Grow/Shrink  "+
-              "= - Save SVG  "+
+              "G - Global/Local Deform  "+
+//              "= - Save SVG  "+
               "H - Help";
 
       this.p5.text(str, 2,this.totalh-2);
