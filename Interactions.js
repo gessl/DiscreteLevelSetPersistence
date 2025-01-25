@@ -7,11 +7,10 @@
 
 // Known issues:
 // computeBoxSnakes does not respect superlevelset direction in its embedded barcode computation, however it can still compute superlevelset persistence via Theorem 6.3 of Belton & Essl (2025).
-//
-// Incomplete implementations/fragments:
+// computePHviaStacks() has limited applicability as it implicitly assumes monotones between extrema. Correct elder bars can be computed via the MergeTree algorithm if needed, or with computePH_orig()
+// Issues/incomplete implementations/fragments:
 // Barcode from Merge Tree via local rule is a fragment. Correct local bars can be computed via the barcodefromrectangle algorithm.
-// computePH_n() not working correctly for total (elder) bar. Correct elder bars can be computed via the MergeTree algorithm if needed.
-
+// Merge tree for circular domain is incomplete and should not be used to complete circular barcodes. Use getBarcodefromBoxSnake for local barcode instead, or computePH_circular for elders.
 //
 // Import stuff from ringedbufferwebaudio.js
 //
@@ -31,9 +30,9 @@ let shiftkeys = true;
 
 // Global states
 let usecircular = false;          // Domain is linear: false  Domain is circular: true
-let startfunc = 32;//20;               // Which function to launch with
+let startfunc = 18;//32;//20;               // Which function to launch with
 let startfunc2 = 33;              // Files!
-let currentindex = 32;            // Stores the actually used function as may be changed by dropdown
+let currentindex = 18;//32;            // Stores the actually used function as may be changed by dropdown
 //let startfunc = Math.floor(Math.random()*18);
 let savesvg = 0;                  // Save SVG at launch (can also be achieved by '=' key)
 let rendersvg = 0;                // Use SVG rendering to allow SVG saving
@@ -45,7 +44,7 @@ let shiftlength = 16;//32;              // Amount of data to shift per step
 let showelder = false;             // Computer Elder Barcode (via modified Barychikov's algorithm)
 let overridemergetreeelder = false;  // Computer Elder barcode from Merge Tree
 
-let barcodemode = "MergeTreeElder";
+let barcodemode = "Local";
 let elderfilename = [];             // Add test to SVG file name to indicate if local or elder barcode rule was used.
 elderfilename[false]="-local";
 elderfilename[true]="-elder";
@@ -154,7 +153,7 @@ dataYa[30] = [0,90, 90,180,180,120,120,60,0,0]; // Extrema and Monotone
 //functionName[31] = "Global Max in Boundary";
 //dataYa[31] = [180,0, 0,0,0,90,90,0,0,180]; // Global maxima in boundary
 functionName[31] = "Global Max in Boundary";
-dataYa[31] = [180,0, 0,0,0,90,90,0,0,-180]; // Global maxima in boundary
+dataYa[31] = [180,0, 0,0,0,90,90,0,0,180]; // Global maxima in boundary
 functionName[32] = "GenerativeStream";
 dataYa[32] = [0];
 
@@ -226,6 +225,12 @@ function print(a)
 function printc(a)
 {
 //  console.log(a);
+}
+
+// This is a hack. Just add c in front of a print to guarantee the debug message. Minimal keystroke hack.
+function cprint(a)
+{
+  console.log(a)
 }
 
 //
@@ -357,6 +362,7 @@ function generateFlatNoiseShift()
 // Generate Shifting Data. This can be altered by function or use a shared new shifting data.
 function generateShiftData()
 {
+  print("S "+shiftlength+" "+myLSP.dataY.length);
   if(currentindex == cbufferindex)
     return generateStreamingShift();
   else if(currentindex == genindex1)
@@ -397,11 +403,9 @@ let showdeform = false;             // If true computes a linear deformation bas
 
 // Deformatble interactions
 let globaledit = true;              // If true deformations of box snakes effect every deformable box. Else it is local to one box.
-let outofrectedits = true;          // Do interactions allow and clip edits outside of actual rectangles. Useful for interactive demos.
+let outofrectedits = false;          // Do interactions allow and clip edits outside of actual rectangles. Useful for interactive demos. (if set to true can round poorly and create extrema in some cases)
 
 let dofourier = false;              // Use frequency domain (via FFT) on startup
-
-let maxmax = Number.NEGATIVE_INFINITY;//-200;  // Find the global maximum, seeded by what should exceed the data minimum.
 
 // Web UI element handles
 let audiofileinput;         // handle for web page button to load audio files.
@@ -471,15 +475,26 @@ function forcecopyFunction_f(f)
 {
   let i = functionName.indexOf(f);
   myLSP.dataY = dataYa[i];
-  myLSP.setData(myLSP.dataY,usecircular);
+  myLSP.setData(myLSP.dataY,usecircular); // SetData only accepts usecircular if it doesn't have its own
   p5.currentfunc = f;
   currentindex = i;
+
+  if(i == cbufferindex) // Streaming buffer active.
+  {
+    shiftlength = 32;
+  }
+  else if(shiftlength>(myLSP.dataY.length/2))
+  {
+    shiftlength = myLSP.dataY.length/2;    // Make sure our shifts are not too long. This should be adjusted to application needs. Here we just do this to make sure that we can shift no matter what data.
+  }
+
   // For web application this logs the starting or switch state.
   console.log(p5.currentfunc);
   console.log(currentindex);
   console.log(barcodemode);
   console.log(myLSP.usecircular?"circular":"linear");
   console.log(myLSP.globalmax);
+  console.log(shiftlength+" "+myLSP.dataY.length);
 
   if(computeFFT==true)         // If we are computing FFTs, do it!
   {
@@ -510,7 +525,7 @@ function forcecopyFunction_f(f)
 
 //  myLSP.computePH();             // If snake boxes are not of interest just barcodes, pick a way to compute barcodes directly.
   myLSP.computeSnakeBoxes();       // Compute the box snake structure for the current data set
-  myLSP.mergeTreefromSnakeBox();   // Compute the merge tree from the box snake
+  myLSP.mergetree = myLSP.mergeTreefromSnakeBox(myLSP.boxsnake);   // Compute the merge tree from the box snake
   myLSP.computeBarcode();          // Compute bar codes from a selected method
 }
 
@@ -687,15 +702,17 @@ function setup_generic(p5,mythis)
 
   /*
   // UI to select graph settings, currently not working.
-  p5.mySketch = mythis;
   gui = p5.createGui(InstancedSketchGeneric);//,'Graph Visibility');
   p5.gui = p5.createGui(mythis);//,'Graph Visibility');
-  p5.gui.setPosition(totalw-130,20);
   p5.gui.addObject(p5.maingraph.paramstates);
   p5.sliderRange(-180, 180, 1);
   p5.gui.addGlobals('levelset');
   p5.gui.collapse();
   */
+  p5.mySketch = mythis;
+  p5.gui = p5.createGui(p5.mySketch,"Graph Config (toggle)");
+  p5.gui.setPosition(totalw-200,0);
+  p5.gui.addObject(p5.maingraph.paramstates);
 }
 
 // Setup function are needed by p5
@@ -808,17 +825,17 @@ function draw_slide(p5)
 {
 //  copyFunction();     // This slide never changes data so this call is unnecessary
   p5.background(255);
-  if(usecircular == true)
+  if(myLSP.usecircular == true)
     splitpoint = myLSP.dataY.length-1; // rectangles[0].sx;//dataY.length-1;//0;//rectangles[0].sx + 31;
   else
     splitpoint = csplitpoint;
-    if(showelder)
+    if(myLSP.showelder)
     myLSP.computePH_orig();           // Slide only needs barcodes so no other structures are computed
     
 //  if(dataY.length<=512)       // We assume data sizes so no need to check
     {
     p5.maingraph.setSize(totalw,totalh,leftmargin,rightmargin);
-    p5.maingraph.setAllData(myLSP.dataY,myLSP.boxsnake,myLSP.barcode,myLSP.setoflevels,myLSP.xpert,usecircular,0);
+    p5.maingraph.setAllData(myLSP.dataY,myLSP.boxsnake,myLSP.mergetree,myLSP.barcode,myLSP.setoflevels,myLSP.xpert,myLSP.usecircular,0);
     p5.maingraph.drawGraph(levelset,splitpoint);
     }
     if(isPlaying)              // Slide can decide to start playing audio when it shows
@@ -835,7 +852,7 @@ function draw_generic(p5)
   if(dcnt==0)
   {
     p5.background(255);
-    if(usecircular == true)
+    if(myLSP.usecircular == true)
       splitpoint = myLSP.dataY.length-1; // rectangles[0].sx;//dataY.length-1;//0;//rectangles[0].sx + 31;
     else
       splitpoint = csplitpoint;
@@ -843,11 +860,12 @@ function draw_generic(p5)
     if(showsplit) // Are we drawing two graphs for a surgically split data set? Yes!
     {  
       p5.maingraph.setSize(totalw/2,totalh,leftmargin,rightmargin)
-      p5.maingraph.setAllData(leftdata,leftrectangles,leftbarcode,myLSP.setoflevels,myLSP.xpert,usecircular,0);
+      p5.maingraph.setAllData(leftdata,myLSP.leftboxsnake,myLSP.leftmergetree,myLSP.leftbarcode,myLSP.setoflevels,myLSP.xpert,myLSP.usecircular,0);
       p5.maingraph.drawGraph(levelset,splitpoint);
 
+      p5.secondgraph.paramstates=p5.maingraph.paramstates; // Technically graphs can have different aspects shows, but we link them because we don't use it.
       p5.secondgraph.setSize(totalw/2,totalh,leftmargin,rightmargin);
-      p5.secondgraph.setAllData(rightdata,rightrectangles,rightbarcode,myLSP.setoflevels,myLSP.xpert,usecircular,rightbasepoint);
+      p5.secondgraph.setAllData(rightdata,myLSP.rightboxsnake,myLSP.rightmergetree,myLSP.rightbarcode,myLSP.setoflevels,myLSP.xpert,myLSP.usecircular,myLSP.rightbasepoint);
       p5.secondgraph.drawGraph(levelset,splitpoint);
 
       // This helps draw a dashed line location after a linear split between the two graphs (for figures)
@@ -872,7 +890,7 @@ function draw_generic(p5)
     else // Are we drawing two graphs for a surgically split data set? No! Just one graph.
     {
       p5.maingraph.setSize(totalw,totalh,leftmargin,rightmargin);
-      p5.maingraph.setAllData(myLSP.dataY,myLSP.boxsnake,myLSP.barcode,myLSP.setoflevels,myLSP.xpert,myLSP.usecircular,0);
+      p5.maingraph.setAllData(myLSP.dataY,myLSP.boxsnake,myLSP.mergetree,myLSP.barcode,myLSP.setoflevels,myLSP.xpert,myLSP.usecircular,0);
       p5.maingraph.drawGraph(levelset,splitpoint);
       if(drawsplitbox==true) // And draw a bounding rectangle for the figure, the dashed line in this case is drawn inside discretegraph.js
       {
@@ -884,7 +902,6 @@ function draw_generic(p5)
         p5.pop();
       }
     }
-    p5.maingraph.plotfullMergeTree(myLSP.mergetree);
   }
  
   if(savesvg == 1)   // This is used if an SVG should be saved without rendering any interactivity. Used for making specific figures.
@@ -908,7 +925,8 @@ function draw_generic(p5)
       myLSP.shiftDataRight(newDataY);
     // No shift otherwise
 
-    myLSP.mergeTreefromSnakeBox();      // Recompute the merge tree (if desired)
+    myLSP.mergetree = myLSP.mergeTreefromSnakeBox(myLSP.boxsnake);      // Recompute the merge tree (if desired)
+    myLSP.computeBarcode();
 
     waitcnt=waitdelay;            // Allow shifts to be delayed by waitdelay number of frames for autoshift applications
     tidx = tidx+1;
@@ -1134,7 +1152,7 @@ function keyPressed_generic(p5)
       // Transformed data is new data, so we have to compute everything for it.
 //      myLSP.computePH();
       myLSP.computeSnakeBoxes();
-      myLSP.mergeTreefromSnakeBox();
+      myLSP.mergetree = myLSP.mergeTreefromSnakeBox(myLSP.boxsnake);
       myLSP.computeBarcode();
     }
   if(p5.key =='T' || p5.key =='t')      // T key selects time domain via inverse FFT. Data must be powers of 2.
@@ -1162,7 +1180,7 @@ function keyPressed_generic(p5)
       myLSP.dataY = tdataY;
 //      myLSP.computePH();
       myLSP.computeSnakeBoxes();
-      myLSP.mergeTreefromSnakeBox();
+      myLSP.mergetree = myLSP.mergeTreefromSnakeBox(myLSP.boxsnake);
       myLSP.computeBarcode();
     }
   if(p5.key == ' ' && shiftkeys==true)     // space bar does a single step shift
@@ -1217,13 +1235,13 @@ function keyPressed_generic(p5)
   }
   if(p5.key == 'C' || p5.key == 'c')         // Toggle between linear and circular domain (via surgery)
   {
-    if(usecircular==true)
+    if(myLSP.usecircular==true)
     {
       console.log("CP1: DECIRCLE");
       splitpoint = myLSP.dataY.length-1;
       myLSP.splitBoxes(myLSP.dataY.length-1); // Decircularize
-//        barcode = getBarcodefromRectangles(rectangles);
-      myLSP.mergeTreefromSnakeBox();
+//        barcode = getBarcodefromBoxSnake(rectangles);
+      myLSP.mergetree = myLSP.mergeTreefromSnakeBox(myLSP.boxsnake);
       myLSP.computeBarcode();
       return;
     }
@@ -1231,10 +1249,10 @@ function keyPressed_generic(p5)
     {
       console.log("CP1: RECIRCLE");
       myLSP.boxsnake = myLSP.mergeBoxes(myLSP.boxsnake,myLSP.boxsnake);
-//        barcode = getBarcodefromRectangles(rectangles);
-      myLSP.mergeTreefromSnakeBox();
+//        barcode = getBarcodefromBoxSnake(rectangles);
+      myLSP.mergetree = myLSP.mergeTreefromSnakeBox(myLSP.boxsnake);
       myLSP.computeBarcode();
-      usecircular = true;
+      myLSP.usecircular = true;
       return;
     }
   }
@@ -1248,9 +1266,6 @@ function keyPressed_generic(p5)
     {
       p5.gui = p5.createGui(p5.mySketch);
       p5.gui.addObject(p5.maingraph.paramstates);
-      p5.sliderRange(-190, 190, 1);
-      p5.gui.addGlobals('levelset');
-      console.log("LS: "+levelset);
     }
     else
     {
@@ -1274,7 +1289,7 @@ function keyPressed_generic(p5)
 
     if(showsplit==true)
     {
-      if(usecircular==true)
+      if(myLSP.usecircular==true)
       {
         print("CSS1");
         myLSP.splitBoxes(myLSP.dataY.length-1); // Decircularize
@@ -1282,29 +1297,32 @@ function keyPressed_generic(p5)
             
       splitpoint=csplitpoint;
       myLSP.splitBoxes(splitpoint);
+      myLSP.fixRectPoints(myLSP.rightboxsnake,0);           // These fix absolute positions into data inside snake boxes. Could be improved by using relative positioning only in snake boxes, and one global index
       leftdata = myLSP.dataY.slice(0,splitpoint+1);
       rightdata = myLSP.dataY.slice(splitpoint+1,myLSP.dataY.length);
-      leftbarcode = getBarcodefromRectangles(leftrectangles);
-      rightbarcode = getBarcodefromRectangles(rightrectangles);
+      myLSP.leftmergetree = myLSP.mergeTreefromSnakeBox(myLSP.leftboxsnake);
+      myLSP.rightmergetree = myLSP.mergeTreefromSnakeBox(myLSP.rightboxsnake);
+      myLSP.leftbarcode = myLSP.getBarcodefromBoxSnake(myLSP.leftboxsnake);
+      myLSP.rightbarcode = myLSP.getBarcodefromBoxSnake(myLSP.rightboxsnake);
       print("LR "+leftdata.length+" "+rightdata.length);
     }
     else
     {
-      myLSP.boxsnake = myLSP.mergeBoxes(leftrectangles,rightrectangles);
-      myLSP.mergeTreefromSnakeBox();
+      myLSP.boxsnake = myLSP.mergeBoxes(myLSP.leftboxsnake,myLSP.rightboxsnake);
+      myLSP.mergetree = myLSP.mergeTreefromSnakeBox(myLSP.boxsnake);
       myLSP.computeBarcode();
-//      barcode = getBarcodefromRectangles(rectangles);
+//      barcode = getBarcodefromBoxSnake(rectangles);
     }
   }
   if(p5.key == '=' || p5.keyCode===187)       // Save an SVG figure of current graph
   {
     if(rendersvg == 1 || savesvg == 1)
     {//filename here
-      let splitstate = "merged"+(usecircular?"(circ)":"(lin)");
+      let splitstate = "merged"+(myLSP.usecircular?"(circ)":"(lin)");
       if(showsplit)
         splitstate = "split"
 
-      p5.save(dataselectmenu.selected()+"-("+levelset+")+("+defx+"_"+defy+")"+drawrect+label+noiselevel+elderfilename[showelder]+"-"+splitstate+".svg"); // give file name
+      p5.save(dataselectmenu.selected()+"-("+levelset+")+("+defx+"_"+defy+")"+drawrect+label+noiselevel+elderfilename[myLSP.showelder]+"-"+splitstate+".svg"); // give file name
     }
     print("svg saved");
   }
@@ -1316,56 +1334,66 @@ function keyPressed_generic(p5)
   }
   if(p5.key == 'E' && shiftkeys == true)      // Circle through different barcode computation rules and algorithms
   {
-    if(overridemergetreeelder==true)
+    if(myLSP.overridemergetreeelder==true)
     {
       print("LOCAL");
-      overridemergetreeelder=false;
-      showelder=false;
+      myLSP.overridemergetreeelder=false;
+      myLSP.showelder=false;
     }
-    else if(showelder==true)
+    else if(myLSP.showelder==true)
     {
-        print("MT");
-        overridemergetreeelder=true;
+      print("MT");
+      if(myLSP.baryselect < 1)
+      {
+        myLSP.baryselect = myLSP.baryselect+1;
+      }
+      else
+      {
+        myLSP.baryselect = 0;
+        myLSP.overridemergetreeelder=true;
+      }
     }
     else
-      showelder = !showelder;
-
+    {
+      myLSP.showelder = !myLSP.showelder;
+    }
     myLSP.computeBarcode();
     
-    if(overridemergetreeelder==true)
+    if(myLSP.overridemergetreeelder==true)
       barcodemode = "ElderMergeTree";       // Elder computation from merge tree
-    else if(showelder==true)
-      barcodemode = "BARYElder";            // Baryshnikov's (modified) algorithm for elder rule
+    else if(myLSP.showelder==true)
+      barcodemode = "BARYElder"+myLSP.baryselect;            // Baryshnikov's (modified) algorithm for elder rule
     else
       barcodemode = "Local";                // Local bar code rule
 
     console.log(barcodemode);
   }
-  if(p5.key == 'M' && p5.key == 'm')        // Construct Barcodes with order reversed (minima vs maxima exchanged)
+  if(p5.key == 'M' || p5.key == 'm')        // Construct Barcodes with order reversed (minima vs maxima exchanged)
   {
     mindirorder = -mindirorder;
-    print("M "+mindirorder);
+    cprint("M "+mindirorder);
+    myLSP.mindirorder = mindirorder;
     if(showsplit==true)
     {
       p5.maingraph.setMinDirOrder(mindirorder);
       p5.secondgraph.setMinDirOrder(mindirorder);
-      leftbarcode = getBarcodefromRectangles(leftrectangles);
-      rightbarcode = getBarcodefromRectangles(rightrectangles);
+      myLSP.leftbarcode = getBarcodefromBoxSnake(myLSP.leftboxsnake);
+      myLSP.rightbarcode = getBarcodefromBoxSnake(myLSP.rightboxsnake);
     }
     else
     {
       p5.maingraph.setMinDirOrder(mindirorder);
-      myLSP.mergeTreefromSnakeBox();
+      myLSP.mergetree = myLSP.mergeTreefromSnakeBox(myLSP.boxsnake);
       myLSP.computeBarcode();
-//        barcode = getBarcodefromRectangles(rectangles);
+//        barcode = getBarcodefromBoxSnake(rectangles);
     }
   }
   if(p5.key == 'N')       // Invert data
   {
-    invertData();
+    myLSP.invertData();
 //    myLSP.computePH();
     myLSP.computeSnakeBoxes();
-    myLSP.mergeTreefromSnakeBox();
+    myLSP.mergetree = myLSP.mergeTreefromSnakeBox(myLSP.boxsnake);
     myLSP.computeBarcode();
   }
   if(p5.key == 'D' && shiftkeys==true)    // Flip shift direction
@@ -1645,7 +1673,7 @@ function playAudioDataStreamed()
     deformAllBoxSnakes(lastpx, lastpy);
     dcnt = 1; // Disable display updates for maximum audio performance.
 // Comment the above line and uncomment the below two to get interactive display rendering (at a potential webaudio performance cost)    
-//    mergeTreefromSnakeBox();   // Compute the merge tree from the box snake
+//    myLSP.mergetree = myLSP.mergeTreefromSnakeBox(myLSP.boxsnake);   // Compute the merge tree from the box snake
 //    computeBarcode();          // Compute bar codes from a selected method
 
     for (let i = 0; i < RENDER_QUANTUM*us; i++)

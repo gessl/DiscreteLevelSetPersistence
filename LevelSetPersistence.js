@@ -130,10 +130,11 @@ class LSP { // Export wrapper
     this.mindirorder = -1;              // This specifies if we are going with a local min-first or max-first order.
 
     this.mergetree = null;              // Current MergeTree
-    this.lastMaxNode = null; // GEORG GLOBAL AND LOCAL. CHECK
+    this.leftmergetree = null;          // Left split MergeTree
+    this.rightmergetree = null;         // Right split MergeTree
 
     this.betti1 = 0;                    // Do we have a cycle in H_1? Used for informational purposes
-    this.usecircular = false;           // Domain is linear: false  Domain is circular: true
+    this.usecircular = undefined;       // Domain is linear: false  Domain is circular: true, undefined: take it from SetData call.
 
     this.boxsnake = [];                 // This is the global data structure for the box snake associated with the current dataY
     this.leftboxsnake = null;         // This is the left split box snake from and for surgery.
@@ -150,7 +151,8 @@ class LSP { // Export wrapper
     this.rightbarcode;                  //      ..., right split barcode
 
     this.showelder = false;             // Computer Elder Barcode (method decided by overridemergetreeelder)
-    this.overridemergetreeelder = false;  // Computer Elder barcode from Merge Tree or via modified Barychikov's algorithm
+    this.overridemergetreeelder = true;  // Computer Elder barcode from Merge Tree or via modified Barychikov's algorithm
+    this.baryselect = 0;                // Select Barychikov variant
 
     this.datasplit = false;             // Split state of data    
 
@@ -165,17 +167,18 @@ class LSP { // Export wrapper
     
     this.setoflevels = [];              // Stores the set of levels from data
 
-    let nopert = true;                  // Perturb x-axis embedding: false   Use uniform embedding: true
+    this.nopert = true;                  // Perturb x-axis embedding: false   Use uniform embedding: true
     this.xpert = [];                    // X-axis perturbations to illustrate arbitrariness of embedding
   }
 
-setData(data)
+setData(data, usecircular = true)
 {
   this.dataY = data;
   const [gmin, gmax] = getGlobalMinMax(this.dataY);
   this.globalmax = gmax;                      // We need the global max to characterize bars that "end" at the total space (infinity bars in classical persistence). Invariant of static data so only needs to be computed when data changes (shifts for example)!
   this.globalmin = gmin;                      // Global min allows us to invert data and get the inverted max in O(1)
   this.isconstfunc = (gmin == gmax);          // Getting if a function is constant turns all computation on constant functions into O(1)
+  if(this.usecircular == undefined) this.usecircular = usecircular;
 } 
 
 // count how many consecutive samples from position p are "flat". This is a non-mod version hence does not work correctly for circular domains
@@ -198,7 +201,7 @@ countFlats(p)
 //            usecircular  .. box snakes are for circular domain
 // Output: barcode[] .. barcodes using a local barcode rule
 
-getBarcodefromRectangles(rectangles)
+getBarcodefromBoxSnake(rectangles)
 {
   this.barcode = [];
   this.bars = 0;
@@ -301,9 +304,9 @@ shiftDataLeft(newDataY)
   {
     this.boxsnake = this.mergeBoxes(this.boxsnake,this.boxsnake);
   }
-//  mergeTreefromSnakeBox();  // These are disabled for streaming performance.
-//  computeBarcode();         // These are disabled for streaming performance.
-//  barcode = getBarcodefromRectangles(rectangles);  // Alternative
+//  this.mergetree = this.mergeTreefromSnakeBox(this.boxsnake);  // These are disabled for streaming performance.
+//  this.computeBarcode();         // These are disabled for streaming performance.
+//  this.barcode = this.getBarcodefromBoxSnake(rectangles);  // Alternative
 }
 
 // Shift Data to the right. Amount is given by the size of newDataY, which is the data to be shifted in.
@@ -324,13 +327,13 @@ shiftDataRight(newDataY)
 
   for(let i=0;i<newDataY.length;i++)
     this.dataY.pop();
-  let oldDataY = dataY;
-  dataY = newDataY;
+  let oldDataY = this.dataY;
+  this.dataY = newDataY;
   this.computeSnakeBoxes();
 
   // Indices are naturally correct for surgery in this case as both newDataY and oldDataY start at 0, so no need to fix absolute references into data positions.
 
-  dataY = [ ...newDataY, ...oldDataY ];
+  this.dataY = [ ...newDataY, ...oldDataY ];
   this.rightboxsnake = this.boxsnake;
   this.boxsnake = this.mergeBoxes(this.rightboxsnake,this.leftboxsnake);
   if(wascircular==true)
@@ -338,10 +341,9 @@ shiftDataRight(newDataY)
     this.boxsnake = this.mergeBoxes(this.boxsnake,this.boxsnake);
   }
 
-  this.mergeTreefromSnakeBox();
-  computeBarcode();
-//  barcode = getBarcodefromRectangles(rectangles); // Alternative
-  shiftcnt = shiftcnt + 1;
+  this.mergetree = this.mergeTreefromSnakeBox(this.boxsnake);
+  this.computeBarcode();
+//  this.barcode = this.getBarcodefromBoxSnake(this.boxsnake); // Alternative
 }
 
 // Utility to debug print the merge tree (unused)
@@ -547,12 +549,12 @@ computeSnakeBoxes()
 computePH()
 {
   if(this.usecircular==true)
-    computePH_circular();
+    this.computePH_circular();
+  else if(this.baryselect==0)
+    this.computePHviaStacks_improved();
   else
-    computePH_n();
-//    computePH_orig();
+    this.computePHviaStacks();
 }
-
 
 // Partially constructs a bar from an extremum.
 // It either starts an incomplete bar if this.barextrema is zero
@@ -586,7 +588,7 @@ completeBars(dir)
 {
   if(this.barextrema == 1)
   {
-    console.log("completing "+this.barextrema+" "+this.globalmax);
+    print("completing "+this.barextrema+" "+this.globalmax);
 //    let this.globalmax = this.globalmax;
     this.barcode[this.bars][(dir+1)/2] = [this.dataY.length-1,this.dataY.length-1,this.globalmax];
     this.barextrema = 0;
@@ -596,6 +598,8 @@ completeBars(dir)
 }
 
 // Compute Persistent Homology using a circularized modified version of the Barychnikov algorithm.
+// It is based on the already modified computePHviaStack_Improved() algorithm, accounting for the circularly closed domain, and therefor handles flats.
+// The stack algorithm will result in elder-type barcode.
 computePH_circular()
 {
   let minbuffer = new Array();
@@ -604,8 +608,8 @@ computePH_circular()
   let periodstart = 0;
   let maxmaxindex = 0;
   let minminindex = 0;
-  let maxmax = -190;
-  let minmin = 190;
+  let maxmax = Number.NEGATIVE_INFINITY;
+  let minmin = Number.POSITIVE_INFINITY;
   let p = this.dataY.length;
   this.barcode = [];
   let i=0;
@@ -671,23 +675,26 @@ computePH_circular()
   }
 }
 
-// Modifier version of Barychnikov's algorithm
-// See Essl DAFx24. Comments relate to symbolic algorithm in the paper.
-computePH_n()
+// This is a stack-based algorithm very close to what was proposed by Barychnikov (2019/2024).
+// This implementation very close to the original in terms of orientation and stack handling.
+// Warning: This algorithm relies on monotone segments to output barcodes.
+// Our version has a final eject code at the end.
+// However this can still create incorrect results for certain data types (primarily missing monotones between extrema) and hence should be used with caution.
+computePHviaStacks()
 {
-  
 // Maxima, Minima ← empty stacks ▷ Initializing
   let maxstack = new Array(); // Stack
   let minstack = new Array(); // Stack
   let startflat = 0;
   this.barcode = [];
-  let maxmaxentry = [0,0,-maxmax];
+  let maxmaxentry = [0,1,this.globalmax];
   let p = this.dataY.length;
   let i=0;
-  let cmaxmax = -180;
-  let cminmin = 180;
 
-  print("COMPUTEPH_N");
+  maxstack.push(maxmaxentry);
+  print("gmax "+0+" "+1+" "+(this.globalmax));
+
+  print("COMPUTEPH_VIA_STACKS");
   startflat = i;
   i = this.skipFlatsMod(i,p);
 
@@ -702,7 +709,6 @@ computePH_n()
 
 // Direction ← +1 
   let direction = Math.sign(this.dataY[i]-this.dataY[i-1]);
-
   let periodstart = i;
 // for t = 1, . . . , N d
   while(i<periodstart+p)
@@ -721,22 +727,24 @@ computePH_n()
     {
       if(direction == +1)
       {
+        if(i < this.dataY.length-1) // no max in the boundary.
+        {
         print("max "+startflat+" "+(i-startflat)+" "+this.dataY[i-1]);
         maxstack.push([startflat,i-startflat,this.dataY[(i-1).mod(p)]]);
-        if (this.dataY[(i-1).mod(p)] > cmaxmax) cmaxmax = this.dataY[(i-1).mod(p)];
-        if (this.dataY[(i-1).mod(p)] == this.globalmax && minstack.length > 0 && this.usecircular == false) // We found our global, so we found our elder.
-        {
-          console.log("ELDER found");
-          this.barcode.push([minstack[minstack.length-1],maxstack[maxstack.length-1]]);
-          minstack.pop();
-          maxstack.pop();
         }
       }
       else
       {
-        print("min "+startflat+" "+(i-startflat)+" "+this.dataY[i-1]);
-      minstack.push([startflat,i-startflat,this.dataY[(i-1).mod(p)]]);
-      if (this.dataY[(i-1).mod(p)] < cminmin) cminmin = this.dataY[(i-1).mod(p)];
+        if(direction == -1 && minstack.length > 0 && this.dataY[(i-1).mod(p)]<minstack[minstack.length-1][2])
+          {
+            print("BC "+ this.dataY[(i-1).mod(p)]<minstack[minstack.length-1][2])
+            this.barcode.push([minstack[minstack.length-1],maxstack[maxstack.length-1]]);
+            
+            minstack.pop();
+            maxstack.pop();
+          }
+          print("min "+startflat+" "+(i-startflat)+" "+this.dataY[i-1]);
+          minstack.push([startflat,i-startflat,this.dataY[(i-1).mod(p)]]);
       } 
 //      Direction = −Direction ▷ and record change of the direction.
       direction = -direction;
@@ -745,6 +753,7 @@ computePH_n()
     {
       if(direction == -1 && minstack.length > 0 && this.dataY[(i-1).mod(p)]<minstack[minstack.length-1][2])
       {
+        print("BC "+ this.dataY[(i-1).mod(p)]<minstack[minstack.length-1][2])
         this.barcode.push([minstack[minstack.length-1],maxstack[maxstack.length-1]]);
         
         minstack.pop();
@@ -777,7 +786,7 @@ computePH_n()
   }
   if(minstack.length>0) // Connect remaining minimum to the global maximum
   {
-    console.log("Completing");
+    print("Completing");
     this.completeBars(1);
   }
 }
@@ -869,22 +878,23 @@ elderFromTree(tree)
   let ominl;
   
   if(tree.descendants==null || tree.descendants.length == 0)
-    {
-      return [tree, tree.y, tree.x, 1];
-    }
+  {
+    return [tree, tree.y, tree.x, 1];
+  }
   
   for(let i=0; i<tree.descendants.length;i++)
-    {
-      [branch, branchage, minx,minl] = elderFromTree(tree.descendants[i]);
-      minarray.push([minx,minl,branchage]);
-      
-//      print("BA "+branchage);
-      if(branchage < elderly)
-        {
-          elderbranch = branch; 
-          elderly = branchage;
-        }
-    }
+  {
+    [branch, branchage, minx,minl] = this.elderFromTree(tree.descendants[i]);
+    minarray.push([minx,minl,branchage]);
+    
+    print("BA "+branchage);
+    if(branchage < elderly)
+      {
+        print("elder at "+branchage);
+        elderbranch = branch; 
+        elderly = branchage;
+      }
+  }
   
 //  print(elderly);
   for(let i=0; i<tree.descendants.length;i++)
@@ -892,17 +902,17 @@ elderFromTree(tree)
       [minx,minl,branchage] = minarray[i];
       
       if(tree.descendants[i] != elderbranch)
-        {
-          //make barcode for all the deaths
-          this.barcode.push([[minx,minl,branchage],[tree.x,1,tree.y]]);
-//          print("bcmt2: "+barcode[barcode.length-1]+". "+branchage+" "+minx+" "+minl);
-        }
+      {
+        //make barcode for all the deaths
+        this.barcode.push([[minx,minl,branchage],[tree.x,1,tree.y]]);
+        print("bcmt2: "+this.barcode[this.barcode.length-1]+". "+branchage+" "+minx+" "+minl);
+      }
       else
-        {
+      {
 //          print("elsed "+branchage+" "+minx+" "+minl)
-          ominx = minx;
-          ominl = minl;
-        }
+        ominx = minx;
+        ominl = minl;
+      }
     }
   return [tree, elderly, ominx, ominl];
 }
@@ -914,21 +924,57 @@ elderBarcodefromMergeTree()
 //  localBarcodefromMergeTree();
 //  return;
   
+  let minarray = [];
+  let elderly=Number.MAX_VALUE; // high minimum to seed. Our data goes from -180,180.
   let elderbranch=null;
   this.barcode = [];
   let branchage;
+  let branch;
   let minx;
   let minl;
 
   print("ELDERBCFROMTREE");
-  
+/*  
   for(let i=0;i<this.mergetree.descendants.length;i++) 
+  {
+    [elderbranch, branchage, minx,minl] = this.elderFromTree(this.mergetree.descendants[i]);
+    this.barcode.push([[minx,minl,branchage],[this.mergetree.x,1,this.globalmax]]); // This is the elder so it needs to go to this.globalmax
+    print("bcmt: "+this.barcode[this.barcode.length-1]);
+  }
+*/
+  for(let i=0; i<this.mergetree.descendants.length;i++)
+  {
+    [branch, branchage, minx,minl] = this.elderFromTree(this.mergetree.descendants[i]);
+    minarray.push([minx,minl,branchage]);
+    
+    print("BA "+branchage);
+    if(branchage < elderly)
+      {
+        print("elder at "+branchage);
+        elderbranch = branch; 
+        elderly = branchage;
+      }
+  }
+    
+  //  print(elderly);
+  for(let i=0; i<this.mergetree.descendants.length;i++)
+  {
+    [minx,minl,branchage] = minarray[i];
+    
+    if(this.mergetree.descendants[i] != elderbranch)
     {
-      [elderbranch, branchage, minx,minl] = elderFromTree(this.mergetree.descendants[i]);
-      this.barcode.push([[minx,minl,branchage],[this.mergetree.x,1,this.globalmax]]); // This is the elder so it needs to go to this.globalmax
-//      print("bcmt: "+barcode[barcode.length-1]);
+      //make barcode for all the deaths
+      this.barcode.push([[minx,minl,branchage],[this.mergetree.x,1,this.mergetree.y]]);
+      print("bcmt2: "+this.barcode[this.barcode.length-1]+". "+branchage+" "+minx+" "+minl);
     }
+    else
+    {
+      this.barcode.push([[minx,minl,branchage],[this.mergetree.x,1,this.globalmax]]); // This is the elder so it needs to go to this.globalmax
+    }
+  }
+  print("bcmt: "+this.barcode[this.barcode.length-1]);
   
+
 //  print("MTBCE "+barcode.length);
 }
 
@@ -936,7 +982,7 @@ elderBarcodefromMergeTree()
 // Input:  rectangles[]  .. box snake structure
 // Output: mergetree  .. merge tree structure
 
-mergeTreefromSnakeBox()
+mergeTreefromSnakeBox(boxsnake)
 {
   if(this.computeboxsnakes==false) return;
   let lastmin = null;
@@ -947,26 +993,27 @@ mergeTreefromSnakeBox()
   let newmax = null;
   let tempx = null;
   let tempxmin = null;
-  print("MERGETREESTART "+this.boxsnake.length);
+  let mergetree = null;
+  print("MERGETREESTART "+boxsnake.length+" "+boxsnake[0].sx);
 
-  if(this.boxsnake.length==1) // Constant data, which is both a minimum and a maximum and has a point-height barcode
+  if(boxsnake.length==1) // Constant data, which is both a minimum and a maximum and has a point-height barcode
   {
-    tempx = (this.boxsnake[0].ex+this.boxsnake[0].sx)/2;
-    this.mergetree = new TreeNode(this.boxsnake[0].sy,tempx,1);
-    this.mergetree.addChild(new TreeNode(this.boxsnake[0].sy, tempx, -1));
-    return;
+    tempx = (boxsnake[0].ex+boxsnake[0].sx)/2;
+    mergetree = new TreeNode(boxsnake[0].sy,tempx,1);
+    mergetree.addChild(new TreeNode(boxsnake[0].sy, tempx, -1));
+    return mergetree;
   }
   
-  for(let i=0;i<this.boxsnake.length; i++)
+  for(let i=0;i<boxsnake.length; i++)
   {
-    if(this.boxsnake[i].ext!=false) // is an extremum
+    if(boxsnake[i].ext!=false) // is an extremum
     {
-      if(this.boxsnake[i].dir==1 && lastmin != null && (i != this.boxsnake.length-1 || this.usecircular == true)) // New Maximum?
+      if(boxsnake[i].dir==1 && lastmin != null && (i != boxsnake.length-1 || this.usecircular == true)) // New Maximum?
       {
         if(lastmax == null)                                                 // First maximum?
         {
-          lastmax = this.boxsnake[i].sy;
-          tempx = (this.boxsnake[i].ex+this.boxsnake[i].sx)/2;
+          lastmax = boxsnake[i].sy;
+          tempx = (boxsnake[i].ex+boxsnake[i].sx)/2;
 //                  tempx = rectangles[i].sx;
           lastmaxnode =  new TreeNode(lastmax,tempx,1);
           lastmaxnode.addChild(new TreeNode(lastmin, tempxmin, -1));
@@ -977,19 +1024,19 @@ mergeTreefromSnakeBox()
         }
         else
         {
-          if(lastmax == this.boxsnake[i].sy)
+          if(lastmax == boxsnake[i].sy)
           {
-            tempx = (this.boxsnake[i].ex+this.boxsnake[i].sx)/2;
+            tempx = (boxsnake[i].ex+boxsnake[i].sx)/2;
 //                    tempx = rectangles[i].sx;
             lastmaxnode.addChild(new TreeNode(lastmin,tempxmin, -1));
             lastmin = null;
           }
-          else if(lastmax > this.boxsnake[i].sy)
+          else if(lastmax > boxsnake[i].sy)
           {
-            lastmax = this.boxsnake[i].sy;
-            tempx = (this.boxsnake[i].ex+this.boxsnake[i].sx)/2;
+            lastmax = boxsnake[i].sy;
+            tempx = (boxsnake[i].ex+boxsnake[i].sx)/2;
 //                      tempx = rectangles[i].sx;
-            newmax = new TreeNode(this.boxsnake[i].sy,tempx,1);
+            newmax = new TreeNode(boxsnake[i].sy,tempx,1);
             newmax.addChild(new TreeNode(lastmin,tempxmin,-1));
             lastmin = null;
 //                      maxstack[maxstack.length-1].addChild(newmax);
@@ -1005,7 +1052,7 @@ mergeTreefromSnakeBox()
             lastmax = lastmaxnode.y;
 //                      print("pop "+maxstack.length+"  "+rectangles[i].sx+" "+rectangles[i].sy);
             
-            while(maxstack.length>0 && maxstack[maxstack.length-1].y < this.boxsnake[i].sy) // Stacked max is parent
+            while(maxstack.length>0 && maxstack[maxstack.length-1].y < boxsnake[i].sy) // Stacked max is parent
             {
               newmax = maxstack.pop();
               newmax.addChild(lastmaxnode);
@@ -1014,14 +1061,14 @@ mergeTreefromSnakeBox()
 //                          print("pop2 "+maxstack.length);
             }
             
-            if(maxstack[maxstack.length-1] == this.boxsnake[i].sy) // Merge
+            if(maxstack[maxstack.length-1] == boxsnake[i].sy) // Merge
             {
               // no nothing
             }
             else // Stored max is biggest, so new node is separate subtree
             {
-              lastmax = this.boxsnake[i].sy;
-              tempx = (this.boxsnake[i].ex+this.boxsnake[i].sx)/2;
+              lastmax = boxsnake[i].sy;
+              tempx = (boxsnake[i].ex+boxsnake[i].sx)/2;
               newmax = new TreeNode(lastmax,tempx,1);
               newmax.addChild(lastmaxnode);
               maxstack.push(newmax);
@@ -1032,11 +1079,11 @@ mergeTreefromSnakeBox()
           }
         }
       }
-      if(this.boxsnake[i].dir==-1)
+      if(boxsnake[i].dir==-1)
       {
-        lastmin = this.boxsnake[i].sy;
-        tempxmin = (this.boxsnake[i].ex+this.boxsnake[i].sx)/2;
-        if(i == this.boxsnake.length-1)
+        lastmin = boxsnake[i].sy;
+        tempxmin = (boxsnake[i].ex+boxsnake[i].sx)/2;
+        if(i == boxsnake.length-1)
         {
 /*                  if(newmax==null)
             newmax = lastmaxnode;
@@ -1068,19 +1115,19 @@ mergeTreefromSnakeBox()
       // This is an interesting case because technically this is a non-unique situation. Both left and right boundary maxima connect to the minima in this case, if the minimum at question is not in the boundary.
     {
       let i;
-      if(this.boxsnake[0].dir==1) // Left boundary is maximum.
+      if(boxsnake[0].dir==1) // Left boundary is maximum.
       {
         i=0;
       }
-      else if(this.boxsnake[this.boxsnake.length-1].dir==1) // Right boundary is maximum.
+      else if(boxsnake[boxsnake.length-1].dir==1) // Right boundary is maximum.
       {
-        i=this.boxsnake.length-1;
+        i=boxsnake.length-1;
       }
       else
       {
         // THIS SHOULD NEVER HAPPEN!
       }
-      lastmax = this.boxsnake[i].sy;
+      lastmax = boxsnake[i].sy;
 //            tempx = (rectangles[i].ex+rectangles[i].sx)/2;
 //                  tempx = rectangles[i].sx;
       lastmaxnode =  new TreeNode(lastmax,tempxmin,1); // We place the X at the minimum because it's the original connected component. Technically this is an essential tree branch.
@@ -1089,7 +1136,8 @@ mergeTreefromSnakeBox()
   }
   
 //  print("MERGETREE");
-  this.mergetree = lastmaxnode;
+  mergetree = lastmaxnode;
+  return mergetree;
 //  if(overridemergetreeelder==true)
 //    elderBarcodefromMergeTree();
 //  printMergeTree(lastmaxnode);
@@ -1102,34 +1150,40 @@ computeBarcode()
 {
   print("COMPUTEBARCODE csls="+this.computesuperlevelset)
   if(this.computesuperlevelset)
-    invertData();
+    this.invertData();
   
   this.computeSnakeBoxes();
-  this.mergeTreefromSnakeBox();
+  if(this.datasplit==true)
+  {
+    this.leftmergetree = this.mergeTreefromSnakeBox(this.leftboxsnake);
+    this.rightmergetree = this.mergeTreefromSnakeBox(this.rightboxsnake);
+  }
+  else
+    this.mergetree = this.mergeTreefromSnakeBox(this.boxsnake);
 
   if(this.overridemergetreeelder==true)
     {
-      elderBarcodefromMergeTree();
+      this.elderBarcodefromMergeTree();
     }
   else if(this.showelder)
-    computePH();
+    this.computePH();
 //    computePH_orig_s();
   else if(this.datasplit==true)
   {
-    this.leftbarcode = this.getBarcodefromRectangles(this.leftboxsnake);
-    this.rightbarcode = this.getBarcodefromRectangles(this.rightboxsnake);
+    this.leftbarcode = this.getBarcodefromBoxSnake(this.leftboxsnake);
+    this.rightbarcode = this.getBarcodefromBoxSnake(this.rightboxsnake);
   }
   else
     {
-//        mergeTreefromSnakeBox();
-//        computeBarcode();
-    this.barcode = this.getBarcodefromRectangles(this.boxsnake);
+//        this.mergetree = this.mergeTreefromSnakeBox(this.boxsnake);
+//        this.computeBarcode();
+    this.barcode = this.getBarcodefromBoxSnake(this.boxsnake);
     }
   
   if(this.computesuperlevelset)
   {
-    invertData();
-    invertBarcode();
+    this.invertData();
+    this.invertBarcode();
 //    computeSnakeBoxes();
   }
   if(this.computesuperlevelset)
@@ -1142,31 +1196,37 @@ computeBarcode()
 
 computePH_orig_s()
 {
-//    computePH_orig();
-    computePH_n();    // Use our modified version
+  if(this.baryselect == 0)
+    this.computePHviaStacks_improved();
+  else
+    this.computePHviaStacks();
 }
 
 // Compute sublevel set persistence with flats.
-// This is an extension of an algorithm given by Barychnikov to compute persistent homology of time series data with a few extensions.
+// This is based onan algorithm given by Barychnikov to compute persistent homology of time series data with a few extensions.
+// It differs in that it handles flat regions.
+// In particular it does not implicitly assume monotone segments to eject bars following the elder rule, and has some differences in implementation detail.
 // He assumed a global "-infinity" minimum to the left and a global "infinity" maximum to the right providing a specific anchor to the barcode construction that wasn't suitable for us.
-// His case does not handle circular cases, we realize the circular case in computePH_circular()
-// This is essentially an implementation of the original algorithm without the needed modifications. The linear case can be found in computePH_n()
-computePH_orig() {
+// This function does not handle circular cases, we realize the circular case in computePH_circular()
+computePHviaStacks_improved() {
   // Uses Barychnikov's stack based bar data construction.
   let maxstack = new Array(); // Stack
   let minstack = new Array(); // Stack
   this.barcode = [];
 
-  print("computePH_orig");
+  print("computePHviaStacks_improved");
   
   let direction = 0;
   let startflat = 0;
   let flatlen = 0;
-  let maxmax = -190;
-  let minmin = 190;
+  let maxmax = Number.NEGATIVE_INFINITY;
+  let minmin = Number.POSITIVE_INFINITY;
   let maxmaxentry = [0,0,maxmax];
   let minminentry = [0,0,minmin];
   let monotonestart = 0;
+
+  maxstack.push([0,1,this.globalmax]);
+//  minstack.push([0,1,this.globalmin]);
 
   for(let i=0; i<this.dataY.length-1;i++)
   {
@@ -1176,7 +1236,7 @@ computePH_orig() {
     if(i!=0 && this.dataY[i]>maxmax) {maxmax = this.dataY[i]; maxmaxentry = [startflat,flatlen,this.dataY[i]];}
     
     startflat = i;
-    flatlen = countFlats(i);
+    flatlen = this.countFlats(i);
     i=i+flatlen;
 
     switch(direction)
@@ -1457,8 +1517,8 @@ mergeBoxes(leftboxsnake, rightboxsnake)
     {
       print("FlatE-C Merge");
       // Just grow the extremum flat
-      leftrectanges[leftboxsnake.length-1].ex = leftrectanges[leftboxsnake.length-1].ex+1;
-      leftrectanges[leftboxsnake.length-1].dx = leftrectanges[leftboxsnake.length-1].dx+1;
+      leftboxsnake[leftboxsnake.length-1].ex = leftboxsnake[leftboxsnake.length-1].ex+1;
+      leftboxsnake[leftboxsnake.length-1].dx = leftboxsnake[leftboxsnake.length-1].dx+1;
       // Discard right as it's now merged
       this.boxsnake = leftboxsnake;
       this.integritycheck(this.basepoint,this.boxsnake);
@@ -2121,12 +2181,12 @@ signInvertArray(arr)
 // This is used for Superlevel Set Computation via Sign duality.
 invertData()
 {
-  print("Data before inversion  "+dataY);
-  dataY=signInvertArray(dataY);
+  print("Data before inversion  "+this.dataY);
+  this.dataY=this.signInvertArray(this.dataY);
   const swaptemp = this.globalmax;
   this.globalmax = -this.globalmin;       // No need to compute global maxima when they can be inverted from known global minima.
   this.globalmin = -swaptemp;
-  print("Data after inversion  "+dataY);
+  print("Data after inversion  "+this.dataY);
 }
 // Exchange births and deaths of a bar. This is reversing the order of the bar.
 invertBar(b)
@@ -2193,10 +2253,10 @@ createXPerturbation()
   if(this.nopert==true)
   {
   for(let i=0; i<this.dataY.length;i++)
-    this.xpert.push(1);
+    this.xpert.push(0);
   }
   else
-    for(let i=0; i<this.dataY.length;i++)
+    for(let i=0; i<this.dataY.length;i++) // Embed with a sinusoidal deformation.
     {
       this.xpert.push(Math.sin(2*Math.PI*i/this.dataY.length*4));
     }
