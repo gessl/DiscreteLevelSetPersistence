@@ -251,8 +251,9 @@ getBarcodefromBoxSnake(rectangles)
         print("max found "+i);
         this.constructBar(rectangles[i].sx,rectangles[i].ex, rectangles[i].sy,-this.mindirorder);    // Fill in the maximum of a bar
       }
-      if(this.usecircular == false && rectangles[i].sy == this.globalmax && havetotalbar == false)   // In the linear case a global extremum flips local orientation of the bar code construction rule due to one of the two merged connected components characterizing the total space ("infinity" bar).
+      if(this.usecircular == false && rectangles[i].sy == this.maxminGlobal(this.mindirorder) && havetotalbar == false)   // In the linear case a global extremum flips local orientation of the bar code construction rule due to one of the two merged connected components characterizing the total space ("infinity" bar).
       {
+        print("found elder "+i);
         this.constructBar(rectangles[i].sx,rectangles[i].ex, rectangles[i].sy,-this.mindirorder);    // Fill in the maximum of a bar
         havetotalbar = true;        // We have assigned a bar to capture the total space ("bar to infinity" in classical persistence). This happens when the global maximum is in the boundary.
       }
@@ -271,6 +272,14 @@ getBarcodefromBoxSnake(rectangles)
     this.constructBar(rectangles[firstmax].sx,rectangles[firstmax].ex, rectangles[firstmax].sy,-this.mindirorder);
   }
   return this.barcode;
+}
+
+maxminGlobal(mindirorder)
+{
+  if(mindirorder == -1)
+    return this.globalmax;
+  else
+    return this.globalmin;
 }
 
 // Shift Data to the left. Amount is given by the size of newDataY, which is the data to be shifted in.
@@ -542,9 +551,9 @@ computeSnakeBoxes()
 
 // Compute Persistent Homology via variations of Barychnikov's algorithm
 //
-// computePH_circular is the circularized case
-// computePH_n is the altered version to handle boundaries without Barychnikov's assumptions.
-// computePH_orig essentially Barychnikov's algorithm with minor variations in implementation.
+// computePH_circular is the circularized case.
+// computePHviaStacks_improved is the altered version to handle boundaries without Barychnikov's assumptions. It also can handle extrema that are not interspersed with monotones.
+// computePHviaStacks essentially Barychnikov's algorithm with minor variations in implementation. Does not correctly construct barcodes in some conditions.
 
 computePH()
 {
@@ -677,6 +686,7 @@ computePH_circular()
 
 // This is a stack-based algorithm very close to what was proposed by Barychnikov (2019/2024).
 // This implementation very close to the original in terms of orientation and stack handling.
+// The code differs in how it handles samples in the boundary. Barychnikov uses artificial global minia left, and an artificial global maximum right (implying an overall monotone increase between the two). We instead handle boundaries as cases, removing the monotone requirement.
 // Warning: This algorithm relies on monotone segments to output barcodes.
 // Our version has a final eject code at the end.
 // However this can still create incorrect results for certain data types (primarily missing monotones between extrema) and hence should be used with caution.
@@ -691,10 +701,13 @@ computePHviaStacks()
   let p = this.dataY.length;
   let i=0;
 
+  print = function(a) { console.log(a); }
+
+  print("COMPUTEPH_VIA_STACKS");
+
   maxstack.push(maxmaxentry);
   print("gmax "+0+" "+1+" "+(this.globalmax));
 
-  print("COMPUTEPH_VIA_STACKS");
   startflat = i;
   i = this.skipFlatsMod(i,p);
 
@@ -711,7 +724,7 @@ computePHviaStacks()
   let direction = Math.sign(this.dataY[i]-this.dataY[i-1]);
   let periodstart = i;
 // for t = 1, . . . , N d
-  while(i<periodstart+p)
+  while(i<periodstart+p+1)
   {
 //if (f(t) − f(t − 1)) × Direction < 0 then ▷ Direction changes, so either
 //if Direction = +1 then
@@ -722,13 +735,18 @@ computePHviaStacks()
     startflat = i;
     i = this.skipFlatsMod(i,p);
 
-//      print(this.dataY[i]-this.dataY[i-1]*direction+" "+this.dataY[i]+" "+this.dataY[i-1]+" "+direction);
+    print(i+": "+(this.dataY[i]-this.dataY[i-1])*direction+" "+this.dataY[i]+" "+this.dataY[i-1]+" "+direction);
     if((this.dataY[i.mod(p)]-this.dataY[(i-1).mod(p)])*direction < 0)
     {
       if(direction == +1)
       {
         if(i < this.dataY.length-1) // no max in the boundary.
         {
+          if(startflat == periodstart) // Left boundary: we are omitting maxima in the boundary but not minima
+          {
+            print("bmin"+0+" "+(periodstart)+" "+this.dataY[0]);
+            minstack.push([0,periodstart-1,this.dataY[0]]);
+          }
         print("max "+startflat+" "+(i-startflat)+" "+this.dataY[i-1]);
         maxstack.push([startflat,i-startflat,this.dataY[(i-1).mod(p)]]);
         }
@@ -743,7 +761,7 @@ computePHviaStacks()
             minstack.pop();
             maxstack.pop();
           }
-          print("min "+startflat+" "+(i-startflat)+" "+this.dataY[i-1]);
+          print("min "+startflat+" "+(i-startflat)+" "+this.dataY[(i-1).mod(p)]);
           minstack.push([startflat,i-startflat,this.dataY[(i-1).mod(p)]]);
       } 
 //      Direction = −Direction ▷ and record change of the direction.
@@ -777,7 +795,7 @@ computePHviaStacks()
   }
   //  print("bars: "+bars+" "+barcode.length);
   let bars = maxstack.length;
-//  print("bars: "+bars+" "+barcode.length);
+  print("bars: "+bars+" "+minstack.length+" "+this.barcode.length);
   for(let i=0;i<bars;i++)
   {
       this.barcode.push([minstack[minstack.length-1],maxstack[maxstack.length-1]]);
@@ -789,6 +807,9 @@ computePHviaStacks()
     print("Completing");
     this.completeBars(1);
   }
+
+  this.integritycheck_barcode(this.barcode);
+  print = function(a) {};
 }
 
 // let firstmax;
@@ -2099,6 +2120,15 @@ integritycheck(bp,rectangles,total=true)
 }
 
 
+integritycheck_barcode(bc)
+{
+  for(let i = 0; i<bc.length; i++)
+  {
+    if(bc[i][0]==undefined) console.log("IBC: No bc["+i+"][0]!!");
+    if(bc[i][1]==undefined) console.log("IBC: No bc["+i+"][1]!!");
+  }
+}
+
 //
 // Functions that allow redistributing flat regions between extrema and adjacent monotones.
 // The definition of an extremum and monotone overlap along flats, therefore we can redistrute samples between them.
@@ -2191,6 +2221,8 @@ invertData()
 // Exchange births and deaths of a bar. This is reversing the order of the bar.
 invertBar(b)
 {
+//  print = function(a) { console.log(a); }
+
   print("Original Bar  "+b[0]+" "+b[1]);
   let tempby=b[0][2];
   let tempbd=b[0][1];
@@ -2199,6 +2231,8 @@ invertBar(b)
   b[1][2]=-tempby;
   b[1][1]=-tempbd;
   print("Inverted Bar  "+b[0]+" "+b[1]);
+
+//  print = function(a) {};
 }
 
 // Exchanges births and deaths of all bars in a barcode.
@@ -2206,7 +2240,7 @@ invertBarcode()
 {
   for(let i=0; i<this.barcode.length; i++)
   {
-    invertBar(this.barcode[i]);  
+    this.invertBar(this.barcode[i]);  
   }
 }
 

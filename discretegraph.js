@@ -1,3 +1,15 @@
+//
+// disGraph provides discrete graphing
+// Designed to support project on discrete set level set functions, render persistence homology information, merge trees and the like
+// Georg Essl (Feburary 2024-January 2025)
+//
+
+// This is a hack. Just add c in front of a print to guarantee the debug message. Minimal keystroke hack.
+function cprint(a)
+{
+  console.log(a)
+}
+
 // Drawing Functions
 
 class disGraph {
@@ -43,7 +55,6 @@ class disGraph {
     {
       drawlinegraph: false,
       drawalllines: false,
-//      linecolor: [0,255,0],
       drawrect: true,
       drawmonotoneonly: false,
       showhighlight: false,
@@ -59,7 +70,7 @@ class disGraph {
       drawimpulses: true,
       dotsubsample: 1,
       dotsubsampleMin: 1,
-      dotsubsampleMax: 64,
+      dotsubsampleMax: 16,
       dotsubsampleStep: 1,
       drawmergetree: true
     };
@@ -676,6 +687,7 @@ plotMergeTree(tree)
               "D - Direction   "+
 //              "M - Sub/Super   "+
               "N - Negate Function"+
+              "0 - Toggle Subleve/Superlevel"+
               "C - Circular/Linear   "+
               "S - Split/Merge  "+
               "P - Audio  "+
