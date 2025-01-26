@@ -1328,8 +1328,8 @@ function keyPressed_generic(p5)
   }
   if(p5.key =='0')          // Toggle between sublevel and superlevel set
   {
-    computesuperlevelset = !computesuperlevelset;
-    maingraph.setSuperlevelset(computesuperlevelset);
+    myLSP.computesuperlevelset = !myLSP.computesuperlevelset;
+    p5.maingraph.setSuperlevelset(myLSP.computesuperlevelset);
     myLSP.computeBarcode();
   }
   if(p5.key == 'E' && shiftkeys == true)      // Circle through different barcode computation rules and algorithms
@@ -1368,26 +1368,28 @@ function keyPressed_generic(p5)
 
     console.log(barcodemode);
   }
+  /* Experimenta/Incomplete. Only works for local barcode rules via boxsnakes has not been fully implemented for other methods or merge trees.
   if(p5.key == 'M' || p5.key == 'm')        // Construct Barcodes with order reversed (minima vs maxima exchanged)
   {
-    mindirorder = -mindirorder;
-    cprint("M "+mindirorder);
-    myLSP.mindirorder = mindirorder;
+    myLSP.mindirorder = -myLSP.mindirorder;
+    cprint("M "+myLSP.mindirorder);
+    myLSP.mindirorder = myLSP.mindirorder;
     if(showsplit==true)
     {
-      p5.maingraph.setMinDirOrder(mindirorder);
-      p5.secondgraph.setMinDirOrder(mindirorder);
+      p5.maingraph.setMinDirOrder(myLSP.mindirorder);
+      p5.secondgraph.setMinDirOrder(myLSP.mindirorder);
       myLSP.leftbarcode = getBarcodefromBoxSnake(myLSP.leftboxsnake);
       myLSP.rightbarcode = getBarcodefromBoxSnake(myLSP.rightboxsnake);
     }
     else
     {
-      p5.maingraph.setMinDirOrder(mindirorder);
+      p5.maingraph.setMinDirOrder(myLSP.mindirorder);
       myLSP.mergetree = myLSP.mergeTreefromSnakeBox(myLSP.boxsnake);
       myLSP.computeBarcode();
 //        barcode = getBarcodefromBoxSnake(rectangles);
     }
   }
+  */
   if(p5.key == 'N')       // Invert data
   {
     myLSP.invertData();
