@@ -9,7 +9,6 @@
 // computeBoxSnakes does not respect superlevelset direction in its embedded barcode computation, however it can still compute superlevelset persistence via Theorem 6.3 of Belton & Essl (2025).
 // computePHviaStacks() has limited applicability as it implicitly assumes monotones between extrema. Correct elder bars can be computed via the MergeTree algorithm if needed, or with computePH_orig()
 // Issues/incomplete implementations/fragments:
-// Barcode from Merge Tree via local rule is a fragment. Correct local bars can be computed via the barcodefromrectangle algorithm.
 // Merge tree for circular domain is incomplete and should not be used to complete circular barcodes. Use getBarcodefromBoxSnake for local barcode instead, or computePH_circular for elders.
 //
 // Import stuff from ringedbufferwebaudio.js

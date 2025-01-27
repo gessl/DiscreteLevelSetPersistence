@@ -146,7 +146,7 @@ class LSP { // Export wrapper
     this.bars = 0;                      // Current bar count (used by barcode construction)
     this.barextrema = 0;                // Counts how many extrema have been used to construct a bar. 1 means it's incomplete. 0 means it's empty. 2 should never happen as it implies compete.
     this.lastbar = null;                // Keeps track of the last incomplete bar created
-    this.barcode = [];                  // stored barcode of a dataset
+    this.barcode = [];                  // stored barcode of a dataset. It's an array of array of size two (min, max) of the following structure [sx, ex, y] storing the start x, end x and y level associated with the extremum.
     this.leftbarcode;                   // If split, left split barcode
     this.rightbarcode;                  //      ..., right split barcode
 
@@ -812,73 +812,57 @@ computePHviaStacks()
   print = function(a) {};
 }
 
-// let firstmax;
+// Local rules are straightforward because they don't technically require a tree structure or recursions. This is reflected by the simplicity of the algorithm below. No information propagates back up as descending the tree.
 
-localFromTree(tree,relx,dir)
+localFromTree(tree,relx,dir,maxx,maxy)
 {
-  let xdist=Number.MAX_VALUE; // high minimum to seed. Our data goes from -180,180.
-  let neighborbranch=null;
-  let branch;
-  let branchage;
-  let minx;
-  let minl;
-  let minarray = [];
-  let maxarray = [];
-  let ominy;
-  let ominx;
-  let ominl;
-  let starti;
-  let endi;
-  
+ 
   if(tree.descendants==null || tree.descendants.length == 0)
     {
-      return [tree, tree.y, tree.x, 1];
+      this.barcode.push([[tree.x, 1, tree.y],[maxx,1,maxy,]]);
+      return; // We construct bars from max to min so no need to return values.
     }
   
-  if(dir==-1)
+  if(dir==-1) // Lean to the left, so leftmost connects to parent max.
   {
-//    return neighborDescent(tree.descendants[0],relx,dir);
-  }
+    this.localFromTree(tree.descendants[0],relx,dir,maxx,maxy); // First bar goes to parent max.
+    console.log("R "+(this.mergetree.descendants.length-2));
 
-  for(let i=0; i<tree.descendants.length;i++)
+    for(let i=1; i<tree.descendants.length;i++)
     {
-      [branch,branchage,minx,minl] = localFromTree(tree.descendants[i],relx,dir);
-      
-      if((dir == -1 && i !=0) || (dir==1 && i!=tree.descendants.length-1))
-        {
-          
-          //make barcode for all the deaths
-          this.barcode.push([[minx,minl,branchage],[tree.x,1,tree.y]]);
-          print("bcmt2: "+this.barcode[this.barcode.length-1]+". "+branchage+" "+minx+" "+minl);
-        }
-      else
-        {
-          print("elsed "+branchage+" "+minx+" "+minl+" "+dir);
-          ominy = branchage;
-          ominx = minx;
-          ominl = minl;
-        }
+      this.localFromTree(tree.descendants[i],relx,dir,tree.x,tree.y);
     }
-  return [tree, ominy, ominx, ominl];
+  }
+  else if(dir==1) // Lean to the right, so rightmost connects to parent max.
+  {
+    console.log("L "+(this.mergetree.descendants.length-2));
+
+    for(let i=tree.descendants.length-2; i>-1;i--)
+    {
+      this.localFromTree(tree.descendants[i],relx,dir,tree.x,tree.y);
+    }
+    this.localFromTree(tree.descendants[tree.descendants.length-1],relx,dir,maxx,maxy); // First bar goes to parent max.
+  }
 }
 
 // Barcode rule is neighbor. Tribal council rule is neighbor.
 localBarcodefromMergeTree()
 {
-  let neighborbranch=null;
   this.barcode = [];
-  let branchage;
-  let minx;
-  let minl;
-  let dir = 1;
+  let dir = 1;   // Which way are we leaning. Initially we are leaning "right" and at the global maximum we will have to lean left after it's constructed. I.e. we are always leaning towards the (first by choice) global maximum
   print("LOCALBCFROMTREE");
   
-  for(let i=0;i<this.mergetree.descendants.length;i++) 
+  // First (left) branch leans right unless it is in the boundary!
+  console.log("LT 1");
+  this.localFromTree(this.mergetree.descendants[0],this.mergetree.x,dir,this.mergetree.x, this.globalmax);  // We arbitrarily decide to attach the global max to the left branch.
+
+  dir = -1; // Rest leans left
+
+  console.log("RT "+(this.mergetree.descendants.length-2));
+
+  for(let i=1;i<this.mergetree.descendants.length;i++) // Second and later bars
     {
-      if(i>0) dir = -1;
-      [neighborbranch, branchage, minx,minl] = localFromTree(this.mergetree.descendants[i],this.mergetree.x,dir);
-      this.barcode.push([[minx,minl,branchage],[this.mergetree.x,1,this.mergetree.y]]);
-//      print("bcmt: "+barcode[barcode.length-1]);
+      this.localFromTree(this.mergetree.descendants[i],this.mergetree.x,dir,this.mergetree.x, this.mergetree.y);
     }
   
 //  print("MTBCL "+barcode.length);
@@ -1185,6 +1169,7 @@ computeBarcode()
   if(this.overridemergetreeelder==true)
     {
       this.elderBarcodefromMergeTree();
+//      this.localBarcodefromMergeTree();
     }
   else if(this.showelder)
     this.computePH();
